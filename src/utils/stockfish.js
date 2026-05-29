@@ -19,7 +19,9 @@ let commandQueue = Promise.resolve();
 function createWorker() {
   let w;
   try {
-    w = new Worker('/stockfish.js');
+    // Use BASE_URL so the path is correct on GitHub Pages (/chess-replay-trainer/stockfish.js)
+    // as well as in local dev (/stockfish.js).
+    w = new Worker(import.meta.env.BASE_URL + 'stockfish.js');
   } catch (e) {
     console.warn('[Stockfish] Could not create worker:', e);
     failed = true;
@@ -154,6 +156,12 @@ async function _evaluatePosition(fen, depth) {
     w.postMessage(`position fen ${fen}`);
     w.postMessage(`go depth ${depth}`);
   });
+}
+
+// Send 'stop' to abort any running search — use on screen unmount to unblock commandQueue fast.
+export function stopEngine() {
+  const w = getWorker();
+  if (w && !failed) w.postMessage('stop');
 }
 
 // Pre-warm the engine at app startup

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
-import { getBestMove, eloToSkillLevel } from '../utils/stockfish';
+import { getBestMove, stopEngine, eloToSkillLevel } from '../utils/stockfish';
 import { parsePgnHeaders } from '../utils/chesscomApi';
 
 function extractMovesFromPgn(pgn) {
@@ -19,13 +19,6 @@ function buildChessAtMove(pgn, moveIndex) {
   return game;
 }
 
-function sanToUci(chess, san) {
-  try {
-    const cloned = new Chess(chess.fen());
-    const move = cloned.move(san);
-    return move ? move.from + move.to + (move.promotion || '') : null;
-  } catch { return null; }
-}
 
 function getEndReason(chess, playerColor) {
   if (!chess.isGameOver()) return null;
@@ -90,50 +83,72 @@ export default function ReplayBoard({ gameData, startMoveIndex = 0, mistakeInfo 
   const currentTurn = chessRef.current.turn();
   const isMyTurn = currentTurn === playerColor[0];
 
+  // Apply a verbose move object from chess.moves({ verbose:true }) safely.
+  // Only passes promotion when the move actually is a promotion.
+  function applyVerboseMove(chess, m) {
+    try {
+      return chess.move({ from: m.from, to: m.to, ...(m.promotion ? { promotion: m.promotion } : {}) });
+    } catch { return null; }
+  }
+
   const playOpponentMove = useCallback(async () => {
     if (gameOverRef.current) return;
-    setOpponentThinking(true);
     const chess = chessRef.current;
 
-    // Always use Stockfish — never follow original moves, so the opponent
-    // reacts to whatever the player actually played.
-    let chosenUci = null;
+    // If the position is already game-over before the opponent moves, wrap up cleanly.
+    if (chess.isGameOver()) { endGame(); return; }
+
+    setOpponentThinking(true);
+
+    // --- Step 1: find the move to play (without mutating chess yet) ---
+    let pickedMove = null; // verbose move object from chess.moves()
+
+    // Try Stockfish first. Validate the UCI against the current legal moves
+    // before committing — Stockfish can return stale/invalid UCI if the engine
+    // state drifted (e.g. leftover queue from AnalysisScreen evaluations).
     try {
       const r = await getBestMove(chess.fen(), skillLevel, 1200);
-      chosenUci = r.bestmove;
-    } catch { chosenUci = null; }
-
-    // Fallback: pick a random legal move so the game never freezes.
-    if (!chosenUci) {
-      const legal = chess.moves({ verbose: true });
-      if (legal.length > 0) {
-        const m = legal[Math.floor(Math.random() * legal.length)];
-        chosenUci = m.from + m.to + (m.promotion || '');
+      if (r.bestmove && r.bestmove !== '(none)') {
+        const from = r.bestmove.slice(0, 2);
+        const to   = r.bestmove.slice(2, 4);
+        const promo = r.bestmove[4] || undefined;
+        const legal = chess.moves({ verbose: true });
+        pickedMove = legal.find(m =>
+          m.from === from && m.to === to && (!promo || m.promotion === promo)
+        ) ?? null;
       }
+    } catch { /* fall through to random */ }
+
+    // Fallback: random legal move. chess.moves() is never empty unless the game
+    // is already over — which we checked at the top.
+    if (!pickedMove) {
+      const legal = chess.moves({ verbose: true });
+      if (!legal.length) {
+        // Genuinely no moves — game ended while we were waiting for Stockfish.
+        setOpponentThinking(false);
+        endGame();
+        return;
+      }
+      pickedMove = legal[Math.floor(Math.random() * legal.length)];
     }
 
+    // --- Step 2: thinking delay ---
     await new Promise(r => setTimeout(r, 350));
     if (gameOverRef.current) { setOpponentThinking(false); return; }
 
-    if (!chosenUci) {
-      // No legal moves at all — game is over (checkmate or stalemate).
-      setOpponentThinking(false);
-      endGame();
-      return;
-    }
-
-    const move = chess.move({ from: chosenUci.slice(0,2), to: chosenUci.slice(2,4), promotion: chosenUci[4] || 'q' });
+    // --- Step 3: apply the move ---
+    const move = applyVerboseMove(chess, pickedMove);
     if (!move) {
-      // UCI move was illegal in current position — last-resort: first legal move.
+      // Shouldn't happen — pickedMove came from chess.moves(). If it does,
+      // try the first currently-legal move as a last resort.
       const legal = chess.moves({ verbose: true });
-      if (!legal.length) { setOpponentThinking(false); endGame(); return; }
-      const fb = legal[0];
-      const fbMove = chess.move({ from: fb.from, to: fb.to, promotion: fb.promotion || 'q' });
-      if (!fbMove) { setOpponentThinking(false); return; }
-      replayMovesRef.current = [...replayMovesRef.current, fbMove.san];
+      if (!legal.length) { setOpponentThinking(false); if (!gameOverRef.current) endGame(); return; }
+      const fb = applyVerboseMove(chess, legal[0]);
+      if (!fb) { setOpponentThinking(false); return; }
+      replayMovesRef.current = [...replayMovesRef.current, fb.san];
       setFen(chess.fen());
       setReplayMoveCount(replayMovesRef.current.length);
-      setMoveHistory(p => [...p, { san: fbMove.san, player: false }]);
+      setMoveHistory(p => [...p, { san: fb.san, player: false }]);
       setOpponentThinking(false);
       if (chess.isGameOver()) endGame();
       return;

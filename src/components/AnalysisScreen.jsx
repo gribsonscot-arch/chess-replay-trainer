@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
-import { evaluatePosition } from '../utils/stockfish';
+import { evaluatePosition, stopEngine } from '../utils/stockfish';
 
 function buildGameSequence(pgn) {
   const loader = new Chess();
@@ -25,7 +25,7 @@ export default function AnalysisScreen({ gameData, onAnalysisComplete, onBack })
   useEffect(() => {
     cancelled.current = false;
     runAnalysis();
-    return () => { cancelled.current = true; };
+    return () => { cancelled.current = true; stopEngine(); };
 
     async function runAnalysis() {
       const { moves, fens } = buildGameSequence(gameData.pgn);

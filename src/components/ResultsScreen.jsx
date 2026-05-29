@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Chess } from 'chess.js';
-import { evaluatePosition } from '../utils/stockfish';
+import { evaluatePosition, stopEngine } from '../utils/stockfish';
 
 // Build the starting FEN for the replay by fast-forwarding through the full PGN
 function buildStartFen(pgn, startMoveIndex) {
@@ -155,7 +155,7 @@ export default function ResultsScreen({ resultData, onRestart, onPlayAnother }) 
       if (!cancelled) setEvaluating(false);
     });
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; stopEngine(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
