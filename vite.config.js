@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  optimizeDeps: {
-    exclude: ['stockfish'],
-  },
+    base: '/chess-replay-trainer/',
+    plugins: [react(), tailwindcss()],
+    optimizeDeps: {
+          exclude: ['stockfish'],
+    },
 })
