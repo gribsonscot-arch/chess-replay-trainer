@@ -94,19 +94,51 @@ export default function ReplayBoard({ gameData, startMoveIndex = 0, mistakeInfo 
     if (gameOverRef.current) return;
     setOpponentThinking(true);
     const chess = chessRef.current;
-    const origSan = originalMoves.current[replayMovesRef.current.length] || null;
-    let chosenUci = origSan ? sanToUci(chess, origSan) : null;
+
+    // Always use Stockfish — never follow original moves, so the opponent
+    // reacts to whatever the player actually played.
+    let chosenUci = null;
+    try {
+      const r = await getBestMove(chess.fen(), skillLevel, 1200);
+      chosenUci = r.bestmove;
+    } catch { chosenUci = null; }
+
+    // Fallback: pick a random legal move so the game never freezes.
     if (!chosenUci) {
-      try {
-        const r = await getBestMove(chess.fen(), skillLevel, 400);
-        chosenUci = r.bestmove;
-      } catch { chosenUci = null; }
+      const legal = chess.moves({ verbose: true });
+      if (legal.length > 0) {
+        const m = legal[Math.floor(Math.random() * legal.length)];
+        chosenUci = m.from + m.to + (m.promotion || '');
+      }
     }
-    await new Promise(r => setTimeout(r, 450));
+
+    await new Promise(r => setTimeout(r, 350));
     if (gameOverRef.current) { setOpponentThinking(false); return; }
-    if (!chosenUci) { setOpponentThinking(false); return; }
+
+    if (!chosenUci) {
+      // No legal moves at all — game is over (checkmate or stalemate).
+      setOpponentThinking(false);
+      endGame();
+      return;
+    }
+
     const move = chess.move({ from: chosenUci.slice(0,2), to: chosenUci.slice(2,4), promotion: chosenUci[4] || 'q' });
-    if (!move) { setOpponentThinking(false); return; }
+    if (!move) {
+      // UCI move was illegal in current position — last-resort: first legal move.
+      const legal = chess.moves({ verbose: true });
+      if (!legal.length) { setOpponentThinking(false); endGame(); return; }
+      const fb = legal[0];
+      const fbMove = chess.move({ from: fb.from, to: fb.to, promotion: fb.promotion || 'q' });
+      if (!fbMove) { setOpponentThinking(false); return; }
+      replayMovesRef.current = [...replayMovesRef.current, fbMove.san];
+      setFen(chess.fen());
+      setReplayMoveCount(replayMovesRef.current.length);
+      setMoveHistory(p => [...p, { san: fbMove.san, player: false }]);
+      setOpponentThinking(false);
+      if (chess.isGameOver()) endGame();
+      return;
+    }
+
     replayMovesRef.current = [...replayMovesRef.current, move.san];
     setFen(chess.fen());
     setReplayMoveCount(replayMovesRef.current.length);

@@ -87,14 +87,14 @@ function ensureReady() {
 
 // Map ELO to Stockfish UCI Skill Level (0–20)
 export function eloToSkillLevel(elo) {
-  if (elo < 800)  return 1;
-  if (elo < 1000) return 3;
-  if (elo < 1200) return 5;
-  if (elo < 1400) return 7;
-  if (elo < 1600) return 10;
-  if (elo < 1800) return 13;
-  if (elo < 2000) return 16;
-  if (elo < 2200) return 18;
+  if (elo < 800)  return 4;
+  if (elo < 1000) return 6;
+  if (elo < 1200) return 8;
+  if (elo < 1400) return 10;
+  if (elo < 1600) return 12;
+  if (elo < 1800) return 14;
+  if (elo < 2000) return 17;
+  if (elo < 2200) return 19;
   return 20;
 }
 
